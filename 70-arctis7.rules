@@ -1,0 +1,4 @@
+# SteelSeries Arctis 7 (2019) dongle, vendor HID interface: give the seat
+# user access and start the watcher in their systemd user manager.
+SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="1038", ENV{ID_MODEL_ID}=="1260", ENV{ID_USB_INTERFACE_NUM}=="05", \
+  TAG+="uaccess", TAG+="systemd", SYMLINK+="arctis7", ENV{SYSTEMD_USER_WANTS}+="arctis7-watch.service"

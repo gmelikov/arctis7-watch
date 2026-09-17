@@ -1,0 +1,10 @@
+[Unit]
+Description=Switch default audio on SteelSeries Arctis 7 headset power
+BindsTo=dev-arctis7.device
+After=dev-arctis7.device pipewire-pulse.service
+
+[Service]
+ExecStart=%h/.local/bin/arctis7-watch
+ExecStopPost=%h/.local/bin/arctis7-watch --off
+Restart=on-failure
+RestartSec=2

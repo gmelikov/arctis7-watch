@@ -1,0 +1,105 @@
+#!/usr/bin/python3
+"""Switch default audio devices when an Arctis 7 (2019) headset turns on/off.
+
+The USB dongle does not report power changes on its own; we poll it with
+report 0x06 0x14: byte [2] is 0x03 when the headset is on, 0x01 when off.
+"""
+import os
+import select
+import subprocess
+import sys
+import time
+
+DEV = os.environ.get("ARCTIS_HIDRAW", "/dev/arctis7")
+POLL = float(os.environ.get("ARCTIS_POLL", "1"))
+# Substrings of pactl sink/source names; the first match wins.
+ON_SINK = os.environ.get("ARCTIS_ON_SINK", "SteelSeries_Arctis_7")
+ON_SINK_PREFER = os.environ.get("ARCTIS_ON_SINK_PREFER", "game")
+ON_SOURCE = os.environ.get("ARCTIS_ON_SOURCE", "SteelSeries_Arctis_7")
+OFF_SINK = os.environ.get("ARCTIS_OFF_SINK", "AKG_C44-USB")
+OFF_SOURCE = os.environ.get("ARCTIS_OFF_SOURCE", "AKG_C44-USB")
+DRY_RUN = os.environ.get("ARCTIS_DRY_RUN") == "1"
+
+STATUS_ON, STATUS_OFF = 0x03, 0x01
+
+
+def log(*args):
+    print(*args, flush=True)
+
+
+def pactl_names(kind):
+    out = subprocess.run(["pactl", "list", "short", kind], check=True,
+                         capture_output=True, text=True).stdout
+    return [l.split("\t")[1] for l in out.splitlines()
+            if "\t" in l and not l.split("\t")[1].endswith(".monitor")]
+
+
+def pick(kind, substr, prefer=None):
+    names = [n for n in pactl_names(kind) if substr in n]
+    if prefer:
+        names.sort(key=lambda n: prefer not in n)
+    return names[0] if names else None
+
+
+def set_default(kind, name):
+    cmd = ["pactl", "set-default-" + kind, name]
+    log(("DRY: " if DRY_RUN else "") + " ".join(cmd))
+    if not DRY_RUN:
+        subprocess.run(cmd, check=False)
+
+
+def apply(on):
+    sink, source = ((pick("sinks", ON_SINK, ON_SINK_PREFER),
+                     pick("sources", ON_SOURCE)) if on else
+                    (pick("sinks", OFF_SINK), pick("sources", OFF_SOURCE)))
+    for kind, name in (("sink", sink), ("source", source)):
+        if name:
+            set_default(kind, name)
+        else:
+            log(f"no {kind} matching the {'on' if on else 'off'} pattern")
+
+
+def query(fd):
+    # Drop unsolicited reports (e.g. volume key releases) before asking.
+    while select.select([fd], [], [], 0)[0]:
+        os.read(fd, 64)
+    os.write(fd, bytes([0x06, 0x14]) + bytes(29))
+    deadline = time.monotonic() + 0.5
+    while (left := deadline - time.monotonic()) > 0:
+        if select.select([fd], [], [], left)[0]:
+            d = os.read(fd, 64)
+            if d[:2] == b"\x06\x14":
+                return d[2]
+    return None
+
+
+def main():
+    if sys.argv[1:] == ["--off"]:
+        apply(False)
+        return
+    # The dongle ignores commands for a moment after enumeration.
+    time.sleep(1)
+    fd = os.open(DEV, os.O_RDWR)
+    last = None
+    while True:
+        try:
+            st = query(fd)
+        except OSError as e:
+            log(f"{DEV}: {e}, exiting")
+            return
+        if st in (STATUS_ON, STATUS_OFF) and st != last:
+            log("headset", "on" if st == STATUS_ON else "off")
+            # Arctis sinks may appear a bit later than the hidraw node.
+            for _ in range(5):
+                try:
+                    apply(st == STATUS_ON)
+                    break
+                except subprocess.CalledProcessError as e:
+                    log(e)
+                    time.sleep(1)
+            last = st
+        time.sleep(POLL)
+
+
+if __name__ == "__main__":
+    main()
