@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# SPDX-License-Identifier: Apache-2.0
 """Switch default audio devices when an Arctis 7 (2019) headset turns on/off.
 
 The USB dongle does not report power changes on its own; we poll it with

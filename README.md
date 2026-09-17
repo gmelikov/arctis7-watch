@@ -54,3 +54,7 @@ Device values are substrings of `pactl list short sinks/sources` names.
 | `ARCTIS_DRY_RUN`        | unset                  | `1`: only print pactl commands   |
 
 `arctis7-watch --off` switches to the fallback devices once and exits.
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE).
